@@ -79,7 +79,7 @@ resume_from = 'work_dirs/comparison_GAP/ABMIL/50ep_ce/epoch_30.pth'
 workflow = [('train', 1)]
 classes = ['NEG', 'RH', 'ROP']
 dataset_type = 'NFI'
-data_root = '/root/commonfile/guojie/nfi_feature/22layer/train_test71/'
+data_root = '/root/commonfile/guojie/nfi_feature/23layer/train_test71/'
 train_pipeline = [
     dict(type='LoadPtFromFile_vit', self_normalize=True),
     dict(type='ToTensor', keys=['gt_label']),
@@ -96,7 +96,7 @@ data = dict(
         type='NFI',
         classes=['NEG', 'RH', 'ROP'],
         data_prefix=
-        '/root/commonfile/guojie/nfi_feature/22layer/train_test71/train',
+        '/root/commonfile/guojie/nfi_feature/23layer/train_test71/train',
         pipeline=[
             dict(type='LoadPtFromFile_vit', self_normalize=True),
             dict(type='ToTensor', keys=['gt_label']),
@@ -107,7 +107,7 @@ data = dict(
             type='NFI',
             classes=['NEG', 'RH', 'ROP'],
             data_prefix=
-            '/root/commonfile/guojie/nfi_feature/22layer/train_test71/train',
+            '/root/commonfile/guojie/nfi_feature/23layer/train_test71/train',
             pipeline=[
                 dict(type='LoadPtFromFile_vit', self_normalize=True),
                 dict(type='Collect', keys=['img'])
@@ -116,7 +116,7 @@ data = dict(
             type='NFI',
             classes=['NEG', 'RH', 'ROP'],
             data_prefix=
-            '/root/commonfile/guojie/nfi_feature/22layer/data_611/val',
+            '/root/commonfile/guojie/nfi_feature/23layer/data_611/test',
             pipeline=[
                 dict(type='LoadPtFromFile_vit', self_normalize=True),
                 dict(type='Collect', keys=['img'])

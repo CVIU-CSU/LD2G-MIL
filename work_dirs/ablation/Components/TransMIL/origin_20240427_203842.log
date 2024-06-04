@@ -101,7 +101,7 @@ data = dict(
         dict(
             type='NFI',
             classes=['NEG', 'RH', 'ROP'],
-            data_prefix='/home1/guojie/processed/nfi/data_611/test',
+            data_prefix='/home1/guojie/processed/nfi/data_611/val',
             pipeline=[
                 dict(type='LoadPtFromFile_vit', self_normalize=True),
                 dict(type='Collect', keys=['img'])

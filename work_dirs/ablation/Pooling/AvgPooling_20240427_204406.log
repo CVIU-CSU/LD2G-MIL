@@ -78,7 +78,7 @@ resume_from = None
 workflow = [('train', 1)]
 classes = ['NEG', 'RH', 'ROP']
 dataset_type = 'NFI'
-data_root = '/home1/guojie/processed/nfi/hidden_layer/23/data_611/'
+data_root = '/home1/guojie/processed/nfi/hidden_layer/24/data_611/'
 train_pipeline = [
     dict(type='LoadPtFromFile_vit', self_normalize=True),
     dict(type='ToTensor', keys=['gt_label']),
@@ -115,7 +115,7 @@ data = dict(
             type='NFI',
             classes=['NEG', 'RH', 'ROP'],
             data_prefix=
-            '/home1/guojie/processed/nfi/hidden_layer/23/data_611/test',
+            '/home1/guojie/processed/nfi/hidden_layer/23/data_611/val',
             pipeline=[
                 dict(type='LoadPtFromFile_vit', self_normalize=True),
                 dict(type='Collect', keys=['img'])

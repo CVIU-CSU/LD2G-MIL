@@ -27,7 +27,7 @@ def initialize_weights(module):
 
 
 @HEADS.register_module()
-class NFIDsMilHead(ClsHead):
+class NFIDsMilBPHead(ClsHead):
     """Vision Transformer classifier head.
 
     Args:
@@ -52,7 +52,7 @@ class NFIDsMilHead(ClsHead):
                  dropout_v=0.0,
                  *args,
                  **kwargs):
-        super(NFIDsMilHead, self).__init__(
+        super(NFIDsMilBPHead, self).__init__(
             init_cfg=init_cfg, *args, **kwargs)
         self.in_channels = in_channels
         self.num_classes = num_classes

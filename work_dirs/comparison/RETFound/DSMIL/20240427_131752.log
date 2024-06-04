@@ -113,7 +113,7 @@ data = dict(
             type='NFI',
             classes=['NEG', 'RH', 'ROP'],
             data_prefix=
-            '/home1/guojie/processed/nfi/hidden_layer/23/data_611/val',
+            '/home1/guojie/processed/nfi/hidden_layer/23/data_611/test',
             pipeline=[
                 dict(type='LoadPtFromFile_vit', self_normalize=True),
                 dict(type='Collect', keys=['img'])

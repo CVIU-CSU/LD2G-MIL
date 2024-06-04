@@ -7,16 +7,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import build_activation_layer
 from mmcv.cnn.utils.weight_init import trunc_normal_
-from mmcv.cnn import build_norm_layer
 from mmcv.runner import Sequential
 
-# from ..builder import HEADS
-from .cls_head import ClsHead
 from ..builder import HEADS, build_loss
+from .cls_head import ClsHead
+from torch.nn.functional import cosine_similarity
 
 
 @HEADS.register_module()
-class NFISimClsHead(ClsHead):
+class NFIGattnBPClsHead(ClsHead):
     """Vision Transformer classifier head.
 
     Args:
@@ -33,15 +32,13 @@ class NFISimClsHead(ClsHead):
                  num_classes,
                  in_channels,
                  hidden_dim=None,
+                 projector=True,
                  act_cfg=dict(type='Tanh'),
                  init_cfg=dict(type='Constant', layer='Linear', val=0),
-                 loss_weakly_cls=dict(
-                     type='CrossEntropyLoss', loss_weight=1.0),
-                 projector=False,
-                 cls_norm=False,
+                 weakly_cls_loss=dict(type='CrossEntropy'),
                  *args,
                  **kwargs):
-        super(NFISimClsHead, self).__init__(
+        super(NFIGattnBPClsHead, self).__init__(
             init_cfg=init_cfg, *args, **kwargs)
         self.in_channels = in_channels
         self.num_classes = num_classes
@@ -52,64 +49,72 @@ class NFISimClsHead(ClsHead):
             raise ValueError(
                 f'num_classes={num_classes} must be a positive integer')
 
-        self.cls_norm = cls_norm
-        if cls_norm:
-            self.norm1_name, norm1 = build_norm_layer(
-                dict(type='LN', eps=1e-6), in_channels, postfix=1)
-            self.add_module(self.norm1_name, norm1)
+        # Gated Attention
+        # self.attention_V = nn.Sequential(
+        #     nn.Linear(in_channels, 512), # matrix V
+        #     nn.Tanh()
+        # )
+        # self.attention_U = nn.Sequential(
+        #     nn.Linear(in_channels, 512), # matrix U
+        #     nn.Sigmoid()
+        # )
+        # self.attention_w = nn.Linear(512, 1) # matrix w (or vector w if self.ATTENTION_BRANCHES==1)
 
         self.projector = projector
         if projector:
             self.in_channels = 512
             self.lm_head = nn.Linear(in_channels, self.in_channels)
 
-        # Gated Attention
-        self.attention_V = nn.Sequential(
-            # nn.Linear(self.in_channels, self.in_channels // 2), # matrix V
-            nn.Linear(self.in_channels, 128),
-            nn.Tanh()
+        self.attention_A = nn.Sequential(
+            nn.Linear(self.in_channels, self.in_channels // 2),  # matrix V
+            nn.Tanh(),
+            # matrix w (or vector w if self.ATTENTION_BRANCHES==1)
+            nn.Linear(self.in_channels // 2, 1)
         )
-        self.attention_U = nn.Sequential(
-            # nn.Linear(self.in_channels, self.in_channels // 2), # matrix U
-            nn.Linear(self.in_channels, 128),
-            nn.Sigmoid()
+
+        self.layer_V = nn.Linear(self.in_channels, self.in_channels // 2)
+
+        self.attention_B = nn.Sequential(
+            nn.Linear(self.in_channels // 2,
+                      self.in_channels // 4),  # matrix V
+            nn.Tanh(),
+            # matrix w (or vector w if self.ATTENTION_BRANCHES==1)
+            nn.Linear(self.in_channels // 4, 1)
         )
-        # self.attention_w = nn.Linear(self.in_channels // 2, 1) # matrix w (or vector w if self.ATTENTION_BRANCHES==1)
-        self.attention_w = nn.Linear(128, 1)
 
-        self.compute_loss_weakly = build_loss(loss_weakly_cls)
-
+        self.compute_loss_weakly = build_loss(weakly_cls_loss)
         self._init_layers()
-
-    @property
-    def norm1(self):
-        return getattr(self, self.norm1_name)
 
     def _init_layers(self):
         if self.hidden_dim is None:
-            layers = [('head', nn.Linear(self.in_channels, self.num_classes))]
+            layers = [
+                ('head', nn.Linear(self.in_channels // 2, self.num_classes))]
         else:
             layers = [
-                ('pre_logits', nn.Linear(self.in_channels, self.hidden_dim)),
+                ('pre_logits', nn.Linear(self.in_channels // 2, self.hidden_dim)),
                 ('act', build_activation_layer(self.act_cfg)),
                 ('head', nn.Linear(self.hidden_dim, self.num_classes)),
             ]
         self.layers = Sequential(OrderedDict(layers))
 
     def init_weights(self):
-        super(NFISimClsHead, self).init_weights()
+        super(NFIGattnBPClsHead, self).init_weights()
         # Modified from ClassyVision
         if hasattr(self.layers, 'pre_logits'):
             # Lecun norm
             trunc_normal_(
                 self.layers.pre_logits.weight,
+                mean=0.1,
                 std=math.sqrt(1 / self.layers.pre_logits.in_features))
             nn.init.zeros_(self.layers.pre_logits.bias)
 
-        # 非0初始化
-        nn.init.xavier_normal_(self.attention_U[0].weight, gain=1)
-        nn.init.xavier_normal_(self.attention_V[0].weight, gain=0.5)
-        nn.init.xavier_normal_(self.attention_w.weight)
+        # 选择随机高斯初始化方法
+        stdv = 0.01  # 标准差，可以根据实际情况调整
+
+        # 初始化权重
+        nn.init.normal_(self.attention_A[0].weight, mean=0.1, std=stdv)
+        nn.init.normal_(self.attention_B[0].weight, mean=0.1, std=stdv)
+        nn.init.normal_(self.layer_V.weight, mean=0.1, std=stdv)
 
         if self.projector:
             nn.init.xavier_normal_(self.lm_head.weight)
@@ -118,24 +123,22 @@ class NFISimClsHead(ClsHead):
         """Test without augmentation."""
         x = x[-1]
 
-        if self.cls_norm:
-            x = self.norm1(x)
-
         if self.projector:
             cls_token = self.lm_head(x)
         else:
             cls_token = x
 
-        A_V = self.attention_V(cls_token)  # KxL
-        A_U = self.attention_U(cls_token)  # KxL
-        # element wise multiplication # KxATTENTION_BRANCHES
-        A = self.attention_w(A_V * A_U)
+        A = self.attention_A(cls_token)  # KxL
+        A = F.softmax(A, dim=0)  # softmax over K
+        mid_feat = cls_token * A
 
-        # return A
+        mid_feat = self.layer_V(mid_feat)
 
-        A = torch.transpose(A, 1, 0)  # ATTENTION_BRANCHESxK
-        A = F.softmax(A, dim=1)  # softmax over K
-        Z = torch.mm(A, cls_token)  # ATTENTION_BRANCHESxM
+        B = self.attention_B(mid_feat)  # KxL
+        B = torch.transpose(B, 1, 0)  # ATTENTION_BRANCHESxK
+        B = F.softmax(B, dim=0)
+
+        Z = torch.mm(B, mid_feat)  # ATTENTION_BRANCHESxM
 
         cls_score = self.layers(Z)
         if isinstance(cls_score, list):
@@ -146,47 +149,53 @@ class NFISimClsHead(ClsHead):
 
     def forward_train(self, x, gt_label, **kwargs):
         x = x[-1]
-
-        if self.cls_norm:
-            x = self.norm1(x)
+        cls_token = x
+        N = cls_token.shape[0]
 
         if self.projector:
             cls_token = self.lm_head(x)
         else:
             cls_token = x
 
-        A_V = self.attention_V(cls_token)  # KxL
-        A_U = self.attention_U(cls_token)  # KxL
-        # element wise multiplication # KxATTENTION_BRANCHES
-        A = self.attention_w(A_V * A_U)
-        # print("A.shape++++++++++++++++++:", A.shape)
-        # return A
+        A = self.attention_A(cls_token)  # KxL
 
-        max_token = cls_token[A.argmax()]
-        min_token = cls_token[A.argmin()]
-        cos_sim = F.cosine_similarity(
-            max_token.unsqueeze(0), min_token.unsqueeze(0))
-
-        # A_max = torch.sigmoid(A.max())
-        # A_max = torch.stack([1 - A_max, A_max]).reshape(1, 2)
         A_max = A.max()
         A_max = torch.stack([- A_max, A_max]).reshape(1, 2)
 
-        # print("A_max++++++++++++++++++:", A_max)
-        A = torch.transpose(A, 1, 0)  # ATTENTION_BRANCHESxK
-        A = F.softmax(A, dim=1)  # softmax over K
-        Z = torch.mm(A, cls_token)  # ATTENTION_BRANCHESxM
-        # print("Z.shape++++++++++++++++++:", Z.shape)
-        # exit()
+        A = F.softmax(A, dim=0)  # softmax over K
+        mid_feat = cls_token * A
+
+        norm_feat = mid_feat / torch.norm(mid_feat, dim=1, keepdim=True)
+        cos_feat = cosine_similarity(norm_feat, norm_feat)
+        upper_triangle = torch.triu(cos_feat, diagonal=1)
+        # # 计算所有两两向量的余弦相似度矩阵
+        # cosine_similarities = F.cosine_similarity(mid_feat.unsqueeze(1), mid_feat.unsqueeze(0), dim=2)
+        # # 提取余弦相似度矩阵的上三角部分（不包括对角线）
+        # upper_triangle = torch.triu(cosine_similarities, diagonal=1)
+        # # 求和得到所有两两不同向量间余弦相似度之和
+        similarity_sum = upper_triangle.sum() / (N * (N - 1) /
+                                                 2) if N != 1 else upper_triangle.sum()
+
+        mid_feat = self.layer_V(mid_feat)
+
+        B = self.attention_B(mid_feat)  # KxL
+        B = torch.transpose(B, 1, 0)  # ATTENTION_BRANCHESxK
+        B = F.softmax(B, dim=0)
+
+        Z = torch.mm(B, mid_feat)  # ATTENTION_BRANCHESxM
+
         cls_score = self.layers(Z)
-        # print("cls_score.shape++++++++++++++++++:", cls_score.shape)
+        losses = self.loss(cls_score, similarity_sum,
+                           A_max, gt_label, **kwargs)
         # losses = self.loss(cls_score, gt_label, **kwargs)
-        losses = self.loss(cls_score, A_max, cos_sim, gt_label, **kwargs)
+        # exit()
         return losses
 
-    # if use instance regularization
-    # def loss(self, cls_score, instance_score, gt_label, **kwargs):
-    def loss(self, cls_score, instance_score, cos_sim, gt_label, **kwargs):
+    # if add similarity loss
+    def loss(self, cls_score, similarity_score, instance_score, gt_label, **kwargs):
+        # print("gt+++++++++++++++++:", gt_label)
+        # print("cls_score----------:", cls_score)
+        # exit()
         num_samples = len(cls_score)
         losses = dict()
         # compute loss
@@ -200,19 +209,16 @@ class NFISimClsHead(ClsHead):
                 f'top-{k}': a
                 for k, a in zip(self.topk, acc)
             }
+        losses['loss'] = loss
 
-        # print("gt_label++++++++++++++++++:", gt_label)
+        losses['sim_loss'] = 0.5 * (similarity_score + 1)
 
         weak_gt = torch.where(
             gt_label != 0, torch.ones_like(gt_label), gt_label)
         # print("gt_weak++++++++++++++++++:", weak_gt)
 
         loss_weakly_cls = self.compute_loss_weakly(
-            # instance_score, weak_gt, avg_factor=num_samples, **kwargs)
             instance_score, weak_gt, avg_factor=num_samples, **kwargs)
-        losses['loss'] = loss
+        losses['weakly_cls_loss'] = loss_weakly_cls
 
-        cos_sim += 1
-        cos_sim = 2 - cos_sim if gt_label == 0 else cos_sim
-        losses['loss_weakly_cls'] = loss_weakly_cls + cos_sim
         return losses
