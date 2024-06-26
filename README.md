@@ -9,6 +9,10 @@ MMClassification is an open source object detection toolbox based on PyTorch. It
 
 <img src="./img/framework1.jpg" alt="framework" style="zoom:75%;" />
 
+## Datasets
+
+In this study, 115,621 fundus images of 8886 neonates were acquired using RetCam3 from the Hunan Provincial Maternal and Child Health Hospital from 2015 to 2019. The collection and analysis of image data were approved by the Institutional Review Board of the Hunan Provincial Maternal and Child Health Hospital and adhered to the tenets of the Declaration of Helsinki. The resolution of images is $1600 \times 1200$ pixels. Multiple retinal images were taken from each subject at different angles. The dataset encompasses class labels determined by four professional ophthalmologists based on a series of retinal images from the subjects, categorized into Normal, Retinal Hemorrhage (RH), and Retinopathy of Prematurity (ROP). To ensure the greatest degree of accuracy and consistency, samples that were uncertain or ambiguous underwent a joint diagnostic review by all four ophthalmologists, leading to definitive annotations. We randomly divided the 8,886 subjects into the training set (train), validation set (val), and test set (test) with a ratio of 6:1:1. The distribution of annotated instances among classes is detailed in Table~\ref{tab1}. We conducted comparative evaluations of our method against others on the NFI test and reported our ablation experiments on the NFI val.
+
 ## Key Configuration Files
 
 * LD2G-MIL with Gated-ABMIL baseline:
